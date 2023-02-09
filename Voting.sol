@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity >=0.8.17 <0.9.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+/*
+* @author Samir
+* @notice Satoshi promo Project1
+*/
 contract Voting is Ownable {
 
     struct Voter {
@@ -25,77 +29,105 @@ contract Voting is Ownable {
         VotesTallied
     }
 
-    uint whitelistNumber;
+    uint8 whitelistNumber;
     WorkflowStatus public status;
-    uint[] equalIds;
-
     mapping(address => Voter) whitelist;
     Proposal[] public proposals;
 
-    // events
     event VoterRegistered(address voterAddress); 
     event WorkflowStatusChange(WorkflowStatus previousStatus, WorkflowStatus newStatus);
     event ProposalRegistered(uint proposalId);
     event Voted (address voter, uint proposalId);
 
-    // modifiers
-    modifier votable(address _voterAddress) {
-        require(status == WorkflowStatus.VotingSessionStarted, "Voting session not started");
-        require(isRegistered(_voterAddress), "You are not registered");
+    constructor() {
+        addToWhitelist(msg.sender);
+    }
+
+    modifier onlyRegistered() {
+        require(whitelist[msg.sender].isRegistered, "You are not registered");
+        _;
+    }
+
+    modifier votable()  {
         require(!whitelist[msg.sender].hasVoted, "You've already voted");
         _;
     }
 
-    modifier proposable(address _voterAddress,string memory _description){
-        require(status == WorkflowStatus.ProposalsRegistrationStarted, "Proposal registration not started");
-        require(isRegistered(_voterAddress), "You are not registered");
-        require(bytes(_description).length > 0, "Proposal description should not be empty");
-        _;
-    }
-    //functions
-    function isRegistered(address _voterAddress) internal view returns(bool){
-        return whitelist[_voterAddress].isRegistered;
+
+    /*
+    * @dev check if an address is registred in the withelist
+    * @param _index of the WorkflowStatus
+    */
+    function checkStatus(uint8 _index) private view  {
+        require(uint8(status) == _index,"Not authorized");
     }
 
+    /*
+    * @dev incremente status
+    */
+    function incrementStatus() private  {
+        status = WorkflowStatus(uint8(status) + 1);
+        emit WorkflowStatusChange(WorkflowStatus(uint8(status) - 1), status);
+    }
 
+    /*
+    * @dev Add to whitelist a new voter
+    * @param _voterAddress ethereum address of the new voter
+    */
     function addToWhitelist(address _voterAddress) public onlyOwner {
-        require(status == WorkflowStatus.RegisteringVoters, "Voter registration is not open");
-        require(!isRegistered(_voterAddress), "Voter is already registered");
+        checkStatus(0);
+        require(!whitelist[_voterAddress].isRegistered, "Voter is already registered");
         Voter memory newVoter = Voter(true,false,0);
         whitelist[_voterAddress] = newVoter;
         whitelistNumber++;
         emit VoterRegistered(_voterAddress);
     }
 
-    function startProposalsRegistration() public onlyOwner {
-        require(status == WorkflowStatus.RegisteringVoters, "Voter registration is not open");
-        require(whitelistNumber > 0, "No registered voter to start registering proposals");
-        status = WorkflowStatus.ProposalsRegistrationStarted;
-        emit WorkflowStatusChange(WorkflowStatus.RegisteringVoters, WorkflowStatus.ProposalsRegistrationStarted);
+    /*
+    * @dev start proposal registration process by incrementing the status
+    */
+    function startProposalsRegistration() external onlyOwner {
+        checkStatus(0);
+        require(whitelistNumber > 1, "Must be at least 2 voters to start the process");
+        incrementStatus();
     }
 
-    function registerProposal(string memory _description) public proposable(msg.sender,_description){
+    /*
+    * @dev
+    * @param
+    */
+    function registerProposal(string memory _description) external onlyRegistered {
+        checkStatus(1);
+        require(bytes(_description).length > 10, "Proposal description is to short");
         Proposal memory proposal = Proposal(_description,0);
         proposals.push(proposal);
-        uint proposalId = proposals.length;
+        uint proposalId = proposals.length - 1;
         emit ProposalRegistered(proposalId);
     }
 
-    function endProposalsRegistration() public onlyOwner {
-        require(status == WorkflowStatus.ProposalsRegistrationStarted, "No proposal registration to close");
+    /*
+    * @dev
+    */
+    function endProposalsRegistration() external onlyOwner {
+        checkStatus(1);
         require(proposals.length > 0, "There's not yet any proposal to vote");
-        status = WorkflowStatus.ProposalsRegistrationEnded;
-        emit WorkflowStatusChange(WorkflowStatus.ProposalsRegistrationStarted, WorkflowStatus.ProposalsRegistrationEnded);
+        incrementStatus();
     }
 
-    function startVotingSession() public onlyOwner {
-        require(status == WorkflowStatus.ProposalsRegistrationEnded, "Voter proposal registration not closed");
-        status = WorkflowStatus.VotingSessionStarted;
-        emit WorkflowStatusChange(WorkflowStatus.ProposalsRegistrationEnded,WorkflowStatus.VotingSessionStarted);
+    /*
+    * @dev
+    */
+    function startVotingSession() external onlyOwner {
+        checkStatus(2);
+        incrementStatus();
     }
 
-
-    function vote(uint _proposalId) public  votable(msg.sender) {
+    /*
+    * @dev
+    * @param
+    */
+    function vote(uint _proposalId) external votable onlyRegistered {
+        checkStatus(3);
         require(_proposalId >= 0 && _proposalId < proposals.length, "proposal id is not valide");
         Voter memory updatedVoter = Voter(true,true,_proposalId);
         proposals[_proposalId].voteCount++;
@@ -103,27 +135,36 @@ contract Voting is Ownable {
         emit Voted(msg.sender,_proposalId);
     }
 
-    function endVotingSession() public onlyOwner  {
-        require(status == WorkflowStatus.VotingSessionStarted, "Voting session not started");
-        status = WorkflowStatus.VotingSessionEnded;
-        emit WorkflowStatusChange(WorkflowStatus.VotingSessionStarted, WorkflowStatus.VotingSessionEnded);
+    /*
+    * @dev
+    */
+    function endVotingSession() external onlyOwner  {
+        checkStatus(3);
+        incrementStatus();
     }
 
-    function getWinner() public returns(Proposal memory){
-        require(status == WorkflowStatus.VotingSessionEnded, "Voting session is not finished");
+    /*
+    * @dev
+    * @param
+    * @return
+    */
+    function getWinner() external returns(Proposal memory){
+        checkStatus(4);
         Proposal memory winningProposal;
-        for(uint i;i < proposals.length;i++){
+        bool equality;
+        for(uint8 i;i < proposals.length;i++){
             if(proposals[i].voteCount > winningProposal.voteCount){
                 winningProposal = proposals[i];
-            } else if(i > 0 && proposals[i].voteCount == winningProposal.voteCount){
-                equalIds.push(i);
+            } else if(i > 0 && proposals[i].voteCount != 0 && proposals[i].voteCount == winningProposal.voteCount){
+                equality = true;
             }
         }
-        if(equalIds.length > 0){
+        incrementStatus();
+        if(equality){
             revert("Equality in votes!");
+        }else if(winningProposal.voteCount == 0) {
+            revert("No voters");
         }
-        status = WorkflowStatus.VotesTallied;
-        emit WorkflowStatusChange(WorkflowStatus.VotingSessionEnded, WorkflowStatus.VotesTallied);
         return winningProposal;
     }
 
