@@ -168,7 +168,7 @@ contract Voting is Ownable {
         checkStatus(4);
         Proposal memory winningProposal;
         bool equality;
-        for (uint8 i; i < proposals.length; i++) {
+        for (uint256 i; i < proposals.length; i++) {
             if (proposals[i].voteCount > winningProposal.voteCount) {
                 winningProposal = proposals[i];
             } else if (
